@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WaveArt - Interactive Audio Visualizer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+:root{--bg:#060612;--accent:#7c3aed;--accent2:#06b6d4;--text:#e4e4e7;--dim:#52525b;--font:'Space Grotesk',sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;font-family:var(--font);background:var(--bg);color:var(--text)}
+canvas#viz{position:fixed;inset:0;z-index:1;cursor:crosshair;touch-action:none}
+.screen{position:fixed;inset:0;display:none;justify-content:center;align-items:center;z-index:20;padding:20px}
+.screen.active{display:flex}
+.card{background:rgba(15,15,30,.92);backdrop-filter:blur(24px);border:1px solid rgba(124,58,237,.15);border-radius:18px;padding:40px;text-align:center;max-width:480px;width:90%;animation:fadeUp .7s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+.badge{display:inline-block;padding:5px 14px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:20px;font-size:.6rem;letter-spacing:2px;text-transform:uppercase;color:var(--accent);margin-bottom:16px}
+h1{font-size:2.6rem;font-weight:700;margin-bottom:8px}
+h1 span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sub{color:var(--dim);font-size:.9rem;margin-bottom:24px;line-height:1.5}
+.hint{font-size:.65rem;color:var(--dim);margin-top:14px}
+.accent-btn{padding:14px 36px;background:linear-gradient(135deg,var(--accent),#9333ea);color:white;border:none;border-radius:12px;font-family:var(--font);font-size:.95rem;font-weight:600;cursor:pointer;transition:all .3s;box-shadow:0 4px 15px rgba(124,58,237,.3)}
+.accent-btn:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(124,58,237,.4)}
+.toolbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:30;background:rgba(15,15,30,.9);backdrop-filter:blur(10px);padding:8px 12px;border-radius:12px;border:1px solid rgba(124,58,237,.1)}
+.toolbar.hidden{display:none}
+.tb-btn{width:40px;height:40px;border-radius:8px;background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.12);color:var(--dim);font-size:1rem;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center}
+.tb-btn:hover{background:rgba(124,58,237,.15);color:var(--text)}
+.tb-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(124,58,237,.1)}
+.color-picker{display:flex;gap:6px;align-items:center}
+.cp-dot{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .2s}
+.cp-dot:hover{transform:scale(1.2)}.cp-dot.active{border-color:white}
+.info-badge{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:8px 16px;background:rgba(15,15,30,.8);border:1px solid rgba(124,58,237,.1);border-radius:10px;font-size:.75rem;color:var(--dim);z-index:30;display:none}
+.info-badge.visible{display:block}
+@media(max-width:600px){h1{font-size:1.8rem}.card{padding:28px 20px}.toolbar{bottom:10px;padding:6px 8px}.tb-btn{width:34px;height:34px}}
+    </style>
+</head>
+<body>
+    <audio id="bg-audio" loop preload="none">
+        <source src="https://cdn.pixabay.com/audio/2022/08/23/audio_d29dfc397c.mp3" type="audio/mpeg">
+    </audio>
+    <canvas id="viz"></canvas>
+
+    <div id="intro-screen" class="screen active">
+        <div class="card">
+            <div class="badge">VishwaNova 2026 • Creative</div>
+            <h1>Wave<span>Art</span></h1>
+            <p class="sub">Draw on the canvas to create mesmerizing wave patterns. Your strokes become living, breathing art that pulses with music.</p>
+            <button id="start-btn" class="accent-btn">✨ Start Creating</button>
+            <p class="hint">🎵 Draw + Music = Magic</p>
+        </div>
+    </div>
+
+    <div class="toolbar hidden" id="toolbar">
+        <div class="color-picker" id="color-picker"></div>
+        <div style="width:1px;height:24px;background:rgba(255,255,255,.06);margin:0 4px"></div>
+        <button class="tb-btn" id="btn-clear" title="Clear">🗑️</button>
+        <button class="tb-btn" id="btn-mode" title="Mode">〰️</button>
+        <button class="tb-btn" id="btn-audio" title="Audio">🔇</button>
+    </div>
+
+    <div class="info-badge" id="info-badge">Click & drag to draw • Scroll to change brush size</div>
+
+    <script>
+const canvas=document.getElementById('viz'),ctx=canvas.getContext('2d');
+const bgAudio=document.getElementById('bg-audio');
+canvas.width=innerWidth;canvas.height=innerHeight;
+
+const colors=['#7c3aed','#06b6d4','#f43f5e','#10b981','#f59e0b','#ec4899','#3b82f6','#ffffff'];
+let currentColor=colors[0],brushSize=3,isDrawing=false,mode='wave',audioOn=false;
+let waves=[],particles=[];
+let time=0;
+
+// Build color picker
+const picker=document.getElementById('color-picker');
+colors.forEach((c,i)=>{const d=document.createElement('div');d.className='cp-dot'+(i===0?' active':'');d.style.background=c;d.addEventListener('click',()=>{document.querySelectorAll('.cp-dot').forEach(x=>x.classList.remove('active'));d.classList.add('active');currentColor=c});picker.appendChild(d)});
+
+// Wave data structure
+class Wave{constructor(x,y,color,size){this.points=[{x,y}];this.color=color;this.size=size;this.age=0;this.maxAge=600;this.phase=Math.random()*Math.PI*2}
+addPoint(x,y){this.points.push({x,y})}
+draw(){if(this.points.length<2)return;this.age++;const alpha=Math.max(0,1-this.age/this.maxAge);const t=time*.02;
+ctx.beginPath();ctx.strokeStyle=this.color;ctx.lineWidth=this.size;ctx.globalAlpha=alpha;ctx.lineCap='round';ctx.lineJoin='round';
+if(mode==='wave'){for(let i=0;i<this.points.length;i++){const p=this.points[i];const wave=Math.sin(t+i*.1+this.phase)*8*Math.sin(this.age*.01);const nx=p.x+wave;const ny=p.y+Math.cos(t+i*.15+this.phase)*6;if(i===0)ctx.moveTo(nx,ny);else ctx.lineTo(nx,ny)}}
+else{for(let i=0;i<this.points.length;i++){const p=this.points[i];if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y)}}
+ctx.stroke();ctx.globalAlpha=1;
+// Glow
+if(mode==='wave'&&this.age<100){ctx.shadowColor=this.color;ctx.shadowBlur=15;ctx.stroke();ctx.shadowBlur=0}}
+get alive(){return this.age<this.maxAge}}
+
+// Particles
+class Particle{constructor(x,y,color){this.x=x;this.y=y;this.vx=(Math.random()-.5)*2;this.vy=(Math.random()-.5)*2;this.color=color;this.life=60;this.maxLife=60;this.size=Math.random()*2+1}
+update(){this.x+=this.vx;this.y+=this.vy;this.life--;this.vy+=.02}
+draw(){const a=this.life/this.maxLife;ctx.beginPath();ctx.arc(this.x,this.y,this.size,0,Math.PI*2);ctx.fillStyle=this.color;ctx.globalAlpha=a;ctx.fill();ctx.globalAlpha=1}
+get alive(){return this.life>0}}
+
+function animate(){time++;
+ctx.fillStyle='rgba(6,6,18,0.08)';ctx.fillRect(0,0,canvas.width,canvas.height);
+waves=waves.filter(w=>w.alive);waves.forEach(w=>w.draw());
+particles=particles.filter(p=>p.alive);particles.forEach(p=>{p.update();p.draw()});
+requestAnimationFrame(animate)}
+
+// Drawing
+let currentWave=null;
+function getPos(e){const r=canvas.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top}}
+
+canvas.addEventListener('pointerdown',e=>{isDrawing=true;const p=getPos(e);currentWave=new Wave(p.x,p.y,currentColor,brushSize);waves.push(currentWave);canvas.setPointerCapture(e.pointerId)});
+canvas.addEventListener('pointermove',e=>{if(!isDrawing||!currentWave)return;const p=getPos(e);currentWave.addPoint(p.x,p.y);
+// Spawn particles
+if(Math.random()>.6){particles.push(new Particle(p.x,p.y,currentColor))}});
+canvas.addEventListener('pointerup',()=>{isDrawing=false;currentWave=null});
+
+// Brush size
+canvas.addEventListener('wheel',e=>{e.preventDefault();brushSize=Math.max(1,Math.min(20,brushSize+(e.deltaY>0?-1:1)))},{passive:false});
+
+// Controls
+document.getElementById('btn-clear').addEventListener('click',()=>{waves=[];particles=[];ctx.clearRect(0,0,canvas.width,canvas.height)});
+document.getElementById('btn-mode').addEventListener('click',function(){mode=mode==='wave'?'static':'wave';this.textContent=mode==='wave'?'〰️':'✏️';this.classList.toggle('active')});
+document.getElementById('btn-audio').addEventListener('click',function(){if(audioOn){bgAudio.pause();this.textContent='🔇'}else{bgAudio.volume=.3;bgAudio.play().catch(()=>{});this.textContent='🔊'}audioOn=!audioOn;this.classList.toggle('active')});
+
+document.getElementById('start-btn').addEventListener('click',()=>{document.getElementById('intro-screen').classList.remove('active');document.getElementById('toolbar').classList.remove('hidden');document.getElementById('info-badge').classList.add('visible');bgAudio.volume=.3;bgAudio.play().then(()=>{audioOn=true;document.getElementById('btn-audio').textContent='🔊';document.getElementById('btn-audio').classList.add('active')}).catch(()=>{});setTimeout(()=>document.getElementById('info-badge').classList.remove('visible'),4000)});
+
+addEventListener('resize',()=>{canvas.width=innerWidth;canvas.height=innerHeight});
+animate();
+    </script>
+</body>
+</html>
